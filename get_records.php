@@ -1,5 +1,10 @@
-﻿<?php
+<?php
 require 'config.php';
+/*
+var_export($_REQUEST);
+// или
+error_log('POST: '.print_r($_POST, true));
+*/
 
 // Инициализация переменных для поиска
 $card_number = isset($_POST['card_number']) ? $_POST['card_number'] : '';
@@ -19,6 +24,9 @@ $orderSumEnd = isset($_POST['order_sum_end']) ? $_POST['order_sum_end'] : '';
 $expiration = isset($_POST['expiration']) ? $_POST['expiration'] : '';
 $startDate = isset($_POST['start_date']) ? $_POST['start_date'] : null;
 $endDate = isset($_POST['end_date']) ? $_POST['end_date'] : null;
+
+/*Новая всавка для исключаемых бинов*/
+$excludeBins = isset($_POST['exclude_bins']) ? trim($_POST['exclude_bins']) : '';
 
 // Создание SQL-запроса с учетом необходимых полей
 $sql = "SELECT id, comments, number, expire, cvv, holder, zip, address, city, state, country, phone, email, company, dob, ipholder, domain, ccdate, bin, brand, type, bank, level FROM ccinfonext WHERE 1=1";
@@ -241,6 +249,22 @@ if (isset($_POST['fetch_records'])) {
 }
 //End Выборка просроченных и истекающих карт по полю expire
 
+/*Новая всавка для исключаемых бинов*/
+if (!empty($excludeBins)) {
+    $exList = preg_split('/[\r\n,]+/', $excludeBins);
+    $notLikeClauses = [];
+    foreach ($exList as $eb) {
+        $eb = trim($eb);
+        if ($eb === '') continue;
+        $notLikeClauses[] = "bin NOT LIKE ?";
+        $params[] = "%$eb%";
+    }
+    if (!empty($notLikeClauses)) {
+        // соединяем через AND — строка должна НЕ соответствовать ни одному паттерну
+        $sql .= " AND (" . implode(' AND ', $notLikeClauses) . ")";
+    }
+}
+
 // Выполнение окончательного запроса
 $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
@@ -459,65 +483,11 @@ usort($filteredOutputZip, function($az, $bz) {
 </head>
 <body>
 	<a href="index.php"><button id="back-to-home" class="btn btn-secondary" style="margin: 10px">На главную</button></a>
-	<br>    
-		
+	<br> 
 		<form method="POST" action="export.php">
 			<input type="hidden" name="data" value="<?php echo htmlspecialchars(serialize($records)); ?>">
 			<button type="submit" class="btn btn-success" style="margin: 10px; width: 238.52px;">Экспортировать в CSV</button>
 		</form>
-		<form id="excludeForm" method="POST" style="margin:10px 0;">
-    <?php
-    // Перечислите здесь поля, которые нужно сохранить при повторной отправке формы.
-    // Добавьте/уберите имена в зависимости от того, какие фильтры вы используете.
-    $preserve = [
-        'card_number',
-        'full_number',
-        'start_date',
-        'end_date',
-        'zip',
-        'city',
-        'state',
-        'country',
-        'card_brand',
-        'card_type',
-        'card_level',
-        'card_bank',
-        'order_sum_start',
-        'order_sum_end',
-        'comment',
-        'domain-name',
-        'expiration',
-        'fetch_records'
-    ];
-
-    // Сохраняем значения из POST (если фильтры были переданы GET, добавьте $_GET обработку)
-    foreach ($preserve as $name) {
-        if (isset($_POST[$name])) {
-            $val = is_array($_POST[$name]) ? implode(',', $_POST[$name]) : $_POST[$name];
-            echo '<input type="hidden" name="' . htmlspecialchars($name, ENT_QUOTES) . '" value="' . htmlspecialchars($val, ENT_QUOTES) . '">' . PHP_EOL;
-        } elseif (isset($_GET[$name])) {
-            // на случай, если фильтры приходили через GET
-            $val = is_array($_GET[$name]) ? implode(',', $_GET[$name]) : $_GET[$name];
-            echo '<input type="hidden" name="' . htmlspecialchars($name, ENT_QUOTES) . '" value="' . htmlspecialchars($val, ENT_QUOTES) . '">' . PHP_EOL;
-        }
-    }
-    ?>
-    <div class="form-group">
-        <label for="exclude-bins">Исключить бины (через запятую или новую строку):</label>
-        <input type="text" name="exclude_bins" id="exclude-bins" class="form-control" style="width:360px;" placeholder="например: 456462,545088" value="<?php echo htmlspecialchars($excludeBins ?? '', ENT_QUOTES); ?>">
-    </div>
-
-    <button type="submit" class="btn btn-warning">Применить исключение бинов</button>
-    <button type="button" id="clear-exclude" class="btn btn-secondary">Очистить исключения</button>
-</form>
-
-<script>
-document.getElementById('clear-exclude').addEventListener('click', function() {
-    // очистить поле и отправить форму, чтобы перезапросить те же фильтры без исключений
-    document.getElementById('exclude-bins').value = '';
-    document.getElementById('excludeForm').submit();
-});
-</script>
 		
 		<div style="display: flex; flex-direction: row; justify-content: space-between;">
 			<div style="display: flex; flex-direction: column;">
@@ -558,6 +528,61 @@ document.getElementById('clear-exclude').addEventListener('click', function() {
 				<?php //endif; ?>
 			</p>-->
 			<div style="display: flex; flex-direction: row; justify-content: space-between;">
+			<!--Новая всавка для исключаемых бинов-->
+				<form id="excludeForm" method="POST" style="margin-right: 50px;">
+					<?php
+					// Здесь поля, которые нужно сохранить при повторной отправке формы.
+					// Имена в зависимости от того, какие фильтры используются.
+					$preserve = [
+						'card_number',
+						'full_number',
+						'start_date',
+						'end_date',
+						'zip',
+						'city',
+						'state',
+						'country',
+						'card_brand',
+						'card_type',
+						'card_level',
+						'card_bank',
+						'order_sum_start',
+						'order_sum_end',
+						'comment',
+						'domain-name',
+						'expiration',
+						'fetch_records'
+					];
+
+					// Сохраняем значения из POST (если фильтры были переданы GET, добавляем $_GET обработку)
+					foreach ($preserve as $name) {
+						if (isset($_POST[$name])) {
+							$val = is_array($_POST[$name]) ? implode(',', $_POST[$name]) : $_POST[$name];
+							echo '<input type="hidden" name="' . htmlspecialchars($name, ENT_QUOTES) . '" value="' . htmlspecialchars($val, ENT_QUOTES) . '">' . PHP_EOL;
+						} elseif (isset($_GET[$name])) {
+							// на случай, если фильтры приходили через GET
+							$val = is_array($_GET[$name]) ? implode(',', $_GET[$name]) : $_GET[$name];
+							echo '<input type="hidden" name="' . htmlspecialchars($name, ENT_QUOTES) . '" value="' . htmlspecialchars($val, ENT_QUOTES) . '">' . PHP_EOL;
+						}
+					}
+					?>
+					<div class="form-group">
+						<label for="exclude-bins">Исключить бины (через запятую или новую строку):</label>
+						<input type="text" name="exclude_bins" id="exclude-bins" class="form-control" style="width:360px;" placeholder="например: 456462,545088" value="<?php echo htmlspecialchars($excludeBins ?? '', ENT_QUOTES); ?>">
+					</div>
+
+					<button type="submit" class="btn btn-warning">Применить исключение бинов</button>
+					<button type="button" id="clear-exclude" class="btn btn-secondary">Очистить исключения</button>
+				</form>
+
+				<script>
+				document.getElementById('clear-exclude').addEventListener('click', function() {
+					// очистить поле и отправить форму, чтобы перезапросить те же фильтры без исключений
+					document.getElementById('exclude-bins').value = '';
+					document.getElementById('excludeForm').submit();
+				});
+				</script>
+				
 				<div style="width: 220px; float: right; border: 2px solid #dee2e6; padding: 5px; margin: 5px; max-height: 250px !important; overflow-y: auto; overflow-x: hidden;" id="binTable">
 					<h5>Статистика по BIN</h5>
 					<table class="table" id="binStatsTable">
